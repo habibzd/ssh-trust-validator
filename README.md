@@ -15,13 +15,13 @@ The tool is designed for **read-only analysis** in lab environments and does not
 
 ## Features
 
-- ✅ Parses OpenSSH `sshd_config` with Include directive support
-- ✅ Extracts SSH host key fingerprints (SHA256)
-- ✅ Queries DNS for SSHFP records
-- ✅ Detects DNSSEC validation status (AD flag)
-- ✅ Correlates all inputs to assess trust security
-- ✅ Generates clear findings with severity levels
-- ✅ Supports human-readable and JSON output formats
+-  Parses OpenSSH `sshd_config` with Include directive support
+-  Extracts SSH host key fingerprints (SHA256)
+-  Queries DNS for SSHFP records
+-  Detects DNSSEC validation status (AD flag)
+-  Correlates all inputs to assess trust security
+-  Generates clear findings with severity levels
+-  Supports human-readable and JSON output formats
 
 ## Installation
 
@@ -161,16 +161,15 @@ SSH Trust Assessment Report: example.com
 ## Security & Ethics
 
 This tool is designed for:
-- ✅ **Read-only analysis** - No system modification
-- ✅ **Lab environments** - Controlled testing scenarios
-- ✅ **Misconfiguration detection** - Not exploitation
-- ✅ **Educational purposes** - Undergraduate cybersecurity projects
+-  **Read-only analysis** - No system modification
+-  **Lab environments** - Controlled testing scenarios
+-  **Misconfiguration detection** - Not exploitation
 
 The tool does NOT:
-- ❌ Modify system state
-- ❌ Exploit vulnerabilities
-- ❌ Perform brute force attacks
-- ❌ Inject network traffic
+-  Modify system state
+-  Exploit vulnerabilities
+-  Perform brute force attacks
+-  Inject network traffic
 
 ## Project Structure
 
@@ -241,10 +240,6 @@ If you get permission errors reading SSH configuration or host keys:
 - Ensure you're using a validating resolver (`--resolver`)
 - Check that DNSSEC is properly configured in your lab environment
 
-## License
-
-This project is designed for educational purposes as part of an undergraduate cybersecurity project.
-
 ## Author
 
-Created for an undergraduate artefact-driven cybersecurity project focused on SSH trust misconfiguration detection.
+Habib Zebida
