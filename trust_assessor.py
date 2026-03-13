@@ -1,17 +1,3 @@
-"""
-Trust Assessment Module
-
-Correlates SSH configuration, host keys, SSHFP records, and DNSSEC
-validation to assess trust establishment security.
-
-LIMITATIONS:
-- Focus is on misconfiguration detection, not runtime attack detection
-- SSH certificates are not analyzed (focus is on host key verification via SSHFP)
-- DNSSEC validation status is based on AD flag (operational signal, not cryptographic proof)
-- This tool does not perform cryptographic validation of DNSSEC signatures
-- Analysis is read-only and does not modify system state
-"""
-
 from typing import List, Dict, Optional
 from ssh_config_parser import SSHConfigParser
 from host_key_analyzer import HostKeyAnalyzer
@@ -190,8 +176,11 @@ class TrustAssessor:
         if sshfp_records and sshfp_from_keys:
             matched_keys = []
             unmatched_sshfp = []
-            
-            for sshfp in sshfp_records:
+
+            # Only compare SHA-256 (fingerprint_type 2) records; skip SHA-1 (type 1)
+            comparable_records = [r for r in sshfp_records if r['fingerprint_type'] == 2]
+
+            for sshfp in comparable_records:
                 # Try to match this SSHFP record with a host key
                 match = self.host_key_analyzer.match_sshfp(
                     sshfp['algorithm'],
@@ -240,25 +229,103 @@ class TrustAssessor:
                 'description': 'SSH server has UseDNS disabled',
                 'reason': 'SSH server will not perform DNS lookups (may affect SSHFP usage)',
             })
-        
-        # Check: Trust-relevant configuration
-        if trust_directives:
-            # Check for insecure configurations
-            if trust_directives.get('PasswordAuthentication', 'yes').lower() == 'yes':
-                findings.append({
-                    'severity': 'WARN',
-                    'title': 'Password Authentication Enabled',
-                    'description': 'Password authentication is enabled',
-                    'reason': 'Password authentication is less secure than key-based authentication',
-                })
-            
-            if trust_directives.get('PermitRootLogin', 'prohibit-password').lower() == 'yes':
+
+        # Layer 1: SSH hardening checks
+        # Only run when the config was successfully parsed (ssh_config is non-empty)
+        if ssh_config:
+            # PermitRootLogin: must be "no"
+            permit_root = ssh_config.get('PermitRootLogin', 'prohibit-password').lower()
+            if permit_root != 'no':
                 findings.append({
                     'severity': 'HIGH',
-                    'title': 'Root Login Permitted',
-                    'description': 'Root login is permitted (may allow password authentication)',
-                    'reason': 'Permitting root login increases security risk',
+                    'title': 'PermitRootLogin Not Disabled',
+                    'description': f'PermitRootLogin is set to "{permit_root}"',
+                    'reason': 'Allowing root login (even key-only) increases attack surface and bypasses audit trails.',
+                    'remediation': 'Set PermitRootLogin no in sshd_config',
                 })
+
+            # PasswordAuthentication: must be "no"
+            password_auth = ssh_config.get('PasswordAuthentication', 'yes').lower()
+            if password_auth != 'no':
+                findings.append({
+                    'severity': 'HIGH',
+                    'title': 'PasswordAuthentication Enabled',
+                    'description': f'PasswordAuthentication is set to "{password_auth}"',
+                    'reason': 'Password authentication is vulnerable to brute-force and credential-stuffing attacks.',
+                    'remediation': 'Set PasswordAuthentication no in sshd_config',
+                })
+
+            # PermitEmptyPasswords: must not be "yes"
+            permit_empty = ssh_config.get('PermitEmptyPasswords', 'no').lower()
+            if permit_empty == 'yes':
+                findings.append({
+                    'severity': 'HIGH',
+                    'title': 'PermitEmptyPasswords Enabled',
+                    'description': 'PermitEmptyPasswords is set to "yes"',
+                    'reason': 'Empty passwords provide no authentication security, allowing login without credentials.',
+                    'remediation': 'Set PermitEmptyPasswords no in sshd_config',
+                })
+
+            # Protocol: must be "2"
+            protocol = ssh_config.get('Protocol', '2')
+            if protocol != '2':
+                findings.append({
+                    'severity': 'HIGH',
+                    'title': 'Insecure SSH Protocol Version',
+                    'description': f'Protocol is set to "{protocol}"',
+                    'reason': 'SSH Protocol 1 has known cryptographic weaknesses and must not be used.',
+                    'remediation': 'Set Protocol 2 in sshd_config',
+                })
+
+            # X11Forwarding: flag "yes"
+            x11 = ssh_config.get('X11Forwarding', 'no').lower()
+            if x11 == 'yes':
+                findings.append({
+                    'severity': 'MEDIUM',
+                    'title': 'X11Forwarding Enabled',
+                    'description': 'X11Forwarding is set to "yes"',
+                    'reason': 'X11 forwarding can expose the local display to the remote host, enabling display-hijacking if the server is compromised.',
+                    'remediation': 'Set X11Forwarding no in sshd_config unless explicitly required',
+                })
+
+            # AllowTcpForwarding: flag "yes"
+            tcp_fwd = ssh_config.get('AllowTcpForwarding', 'yes').lower()
+            if tcp_fwd == 'yes':
+                findings.append({
+                    'severity': 'MEDIUM',
+                    'title': 'AllowTcpForwarding Enabled',
+                    'description': 'AllowTcpForwarding is set to "yes"',
+                    'reason': 'TCP forwarding can be used to tunnel traffic through the SSH server, bypassing firewall rules and enabling network pivoting.',
+                    'remediation': 'Set AllowTcpForwarding no in sshd_config unless tunneling is required',
+                })
+
+            # MaxAuthTries: flag anything above 3
+            try:
+                max_auth_tries = int(ssh_config.get('MaxAuthTries', '6'))
+                if max_auth_tries > 3:
+                    findings.append({
+                        'severity': 'MEDIUM',
+                        'title': 'MaxAuthTries Too High',
+                        'description': f'MaxAuthTries is set to {max_auth_tries}',
+                        'reason': 'A high MaxAuthTries value allows more authentication attempts per connection, increasing brute-force risk.',
+                        'remediation': 'Set MaxAuthTries 3 or lower in sshd_config',
+                    })
+            except ValueError:
+                pass
+
+            # LoginGraceTime: flag anything above 30 seconds
+            try:
+                grace_time = int(ssh_config.get('LoginGraceTime', '120'))
+                if grace_time > 30:
+                    findings.append({
+                        'severity': 'MEDIUM',
+                        'title': 'LoginGraceTime Too High',
+                        'description': f'LoginGraceTime is set to {grace_time} seconds',
+                        'reason': 'A long login grace time leaves unauthenticated connections open longer, increasing exposure to connection-exhaustion attacks.',
+                        'remediation': 'Set LoginGraceTime 30 or lower in sshd_config',
+                    })
+            except ValueError:
+                pass
         
         # Compile assessment summary
         assessment = {
@@ -295,14 +362,15 @@ class TrustAssessor:
         summary = {
             'total_findings': len(findings),
             'high_severity': len([f for f in findings if f['severity'] == 'HIGH']),
+            'medium_severity': len([f for f in findings if f['severity'] == 'MEDIUM']),
             'warn_severity': len([f for f in findings if f['severity'] == 'WARN']),
             'info_severity': len([f for f in findings if f['severity'] == 'INFO']),
             'overall_status': 'unknown',
         }
-        
+
         if summary['high_severity'] > 0:
             summary['overall_status'] = 'insecure'
-        elif summary['warn_severity'] > 0:
+        elif summary['medium_severity'] > 0 or summary['warn_severity'] > 0:
             summary['overall_status'] = 'warning'
         else:
             summary['overall_status'] = 'secure'

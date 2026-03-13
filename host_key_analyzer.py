@@ -166,20 +166,19 @@ class HostKeyAnalyzer:
         if not self.host_keys:
             self.discover_host_keys()
         
+        # Only SHA-256 (type 2) comparisons are supported
+        if fingerprint_type != self.SSHFP_FPTYPE_SHA256:
+            return None
+
         # Normalize fingerprint (lowercase, remove colons/spaces)
         fingerprint = fingerprint.lower().replace(':', '').replace(' ', '')
-        
+
         for key_info in self.host_keys:
             if key_info['sshfp_algorithm'] != sshfp_algorithm:
                 continue
-            
-            if fingerprint_type == self.SSHFP_FPTYPE_SHA256:
-                key_fp = key_info['fingerprint_sha256_hex'].lower()
-            else:
-                # SHA1 not supported in this implementation
-                continue
-            
+
+            key_fp = key_info['fingerprint_sha256_hex'].lower()
             if key_fp == fingerprint:
                 return key_info
-        
+
         return None

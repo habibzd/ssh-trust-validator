@@ -12,9 +12,10 @@ class Reporter:
     """Generate reports from trust assessments."""
     
     SEVERITY_COLORS = {
-        'HIGH': '\033[91m',  # Red
-        'WARN': '\033[93m',  # Yellow
-        'INFO': '\033[92m',  # Green
+        'HIGH': '\033[91m',    # Red
+        'MEDIUM': '\033[95m',  # Magenta
+        'WARN': '\033[93m',    # Yellow
+        'INFO': '\033[92m',    # Green
     }
     RESET_COLOR = '\033[0m'
     
@@ -47,9 +48,10 @@ class Reporter:
         print("\n[SUMMARY]")
         print(f"  Overall Status: {self._colorize(summary['overall_status'].upper(), summary['overall_status'])}")
         print(f"  Total Findings: {summary['total_findings']}")
-        print(f"    - HIGH: {summary['high_severity']}")
-        print(f"    - WARN: {summary['warn_severity']}")
-        print(f"    - INFO: {summary['info_severity']}")
+        print(f"    - HIGH:   {summary['high_severity']}")
+        print(f"    - MEDIUM: {summary['medium_severity']}")
+        print(f"    - WARN:   {summary['warn_severity']}")
+        print(f"    - INFO:   {summary['info_severity']}")
         
         # SSH Configuration
         if verbose:
@@ -101,12 +103,13 @@ class Reporter:
         if not findings:
             print("  No findings to report.")
         else:
-            # Group by severity
+            # Group by severity (HIGH → MEDIUM → WARN → INFO)
             high_findings = [f for f in findings if f['severity'] == 'HIGH']
+            medium_findings = [f for f in findings if f['severity'] == 'MEDIUM']
             warn_findings = [f for f in findings if f['severity'] == 'WARN']
             info_findings = [f for f in findings if f['severity'] == 'INFO']
-            
-            for finding in high_findings + warn_findings + info_findings:
+
+            for finding in high_findings + medium_findings + warn_findings + info_findings:
                 self._print_finding(finding)
         
         print("\n" + "=" * 80 + "\n")

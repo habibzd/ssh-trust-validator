@@ -128,8 +128,8 @@ Examples:
         summary = assessment['summary']
         if summary['high_severity'] > 0:
             sys.exit(2)  # High severity findings
-        elif summary['warn_severity'] > 0:
-            sys.exit(1)  # Warnings
+        elif summary['medium_severity'] > 0 or summary['warn_severity'] > 0:
+            sys.exit(1)  # Medium or warning severity findings
         else:
             sys.exit(0)  # No issues
         

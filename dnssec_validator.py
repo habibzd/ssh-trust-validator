@@ -88,10 +88,10 @@ class DNSSECValidator:
             # Get response with flags (minimal query for flag checking)
             response = dns.query.udp(query, resolver_addr, timeout=5)
             
-            # Check AD (Authenticated Data) flag
-            # AD flag indicates that the resolver validated the response using DNSSEC
-            # This is an operational signal from the validating resolver, not cryptographic proof
-            ad_flag_set = bool(response.flags & dns.flags.AD)
+            # Check AD (Authenticated Data) flag using explicit integer bitmask.
+            # dns.flags.AD = 0x0020 (32). Cast both sides to int to avoid
+            # any IntFlag enum comparison ambiguity across dnspython versions.
+            ad_flag_set = bool(int(response.flags) & int(dns.flags.AD))
             
             # Determine validation status based on AD flag
             if ad_flag_set:

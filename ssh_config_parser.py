@@ -39,6 +39,9 @@ class SSHConfigParser:
         'PermitUserEnvironment',
         'X11Forwarding',
         'AllowTcpForwarding',
+        'Protocol',
+        'MaxAuthTries',
+        'LoginGraceTime',
     ]
     
     def __init__(self, config_path: str = '/etc/ssh/sshd_config'):
