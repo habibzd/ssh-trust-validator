@@ -12,21 +12,22 @@ LIMITATIONS:
 - This tool focuses on misconfiguration detection, not runtime attack detection
 """
 
-import dns.resolver
 import dns.message
 import dns.query
 import dns.flags
+import dns.rcode
+import dns.resolver
 from typing import Optional, Dict
 
 
 class DNSSECValidator:
     """
     Detect DNSSEC validation status from DNS responses.
-    
-    Uses dns.resolver.resolve() for queries and checks the AD (Authenticated Data)
-    flag in the underlying DNS response message. The AD flag is an operational
-    signal that indicates the validating resolver successfully validated the
-    response using DNSSEC.
+
+    Sends a raw UDP query with the DO flag set directly to the configured resolver
+    and checks the AD (Authenticated Data) flag in the response. The AD flag is an
+    operational signal that indicates the validating resolver successfully validated
+    the response using DNSSEC.
     """
     
     def __init__(self, resolver_ip: Optional[str] = None):
@@ -49,12 +50,10 @@ class DNSSECValidator:
     def check_dnssec_validation(self, hostname: str, record_type: str = 'SSHFP') -> Dict:
         """
         Check if DNS responses for a hostname are DNSSEC validated.
-        
-        This method uses dns.resolver.resolve() to query records, then checks
-        the AD flag from the underlying DNS response message. The AD flag
-        indicates that the validating resolver successfully validated the
-        response using DNSSEC.
-        
+
+        Sends a raw UDP query with the DO flag directly to the configured resolver
+        and checks the AD flag in the response.
+
         Args:
             hostname: Hostname to check
             record_type: DNS record type to query (default: SSHFP)
@@ -88,6 +87,16 @@ class DNSSECValidator:
 
             print(f"[DEBUG] Response received from {resolver_addr}, flags={dns.flags.to_text(response.flags)}")
 
+            if response.rcode() == dns.rcode.NXDOMAIN:
+                return {
+                    'status': 'error',
+                    'description': 'Hostname does not exist (NXDOMAIN)',
+                    'ad_flag': False,
+                    'hostname': hostname,
+                    'record_type': record_type,
+                    'resolver_ip': resolver_addr,
+                }
+
             # Check AD (Authenticated Data) flag using explicit integer bitmask.
             # dns.flags.AD = 0x0020 (32). Cast both sides to int to avoid
             # any IntFlag enum comparison ambiguity across dnspython versions.
@@ -117,15 +126,6 @@ class DNSSECValidator:
             
             return result
             
-        except dns.resolver.NXDOMAIN:
-            return {
-                'status': 'error',
-                'description': 'Hostname does not exist (NXDOMAIN)',
-                'ad_flag': False,
-                'hostname': hostname,
-                'record_type': record_type,
-                'resolver_ip': self.resolver_ip or (self.resolver.nameservers[0] if self.resolver.nameservers else None),
-            }
         except dns.exception.Timeout:
             raise DNSSECValidationError(f"DNS query timeout for {hostname}")
         except Exception as e:
