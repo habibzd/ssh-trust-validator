@@ -102,10 +102,10 @@ class DNSSECValidator:
             finally:
                 sock.close()
 
+            print("raw bytes len:", len(data))
             response = dns.message.from_wire(data)
-            print(f"[DEBUG] Raw response bytes len: {len(data)}")
-            print(f"[DEBUG] Response flags text: {dns.flags.to_text(response.flags)}")
-            print(f"[DEBUG] dns.flags.AD constant value: {int(dns.flags.AD):#06x}")
+            print("response flags text:", dns.flags.to_text(response.flags))
+            print("AD detected:", bool(response.flags & dns.flags.AD))
 
             if response.rcode() == dns.rcode.NXDOMAIN:
                 return {
@@ -119,7 +119,6 @@ class DNSSECValidator:
 
             # Check AD flag directly on the response message object
             ad_flag_set = bool(response.flags & dns.flags.AD)
-            print(f"[DEBUG] AD flag detected: {ad_flag_set}")
 
             # Determine validation status based on AD flag
             if ad_flag_set:
