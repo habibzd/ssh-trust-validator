@@ -103,7 +103,9 @@ class DNSSECValidator:
                 sock.close()
 
             response = dns.message.from_wire(data)
-            print(f"[DEBUG] Response received from {resolver_addr}, flags={dns.flags.to_text(response.flags)}")
+            print(f"[DEBUG] Raw response bytes len: {len(data)}")
+            print(f"[DEBUG] Response flags text: {dns.flags.to_text(response.flags)}")
+            print(f"[DEBUG] dns.flags.AD constant value: {int(dns.flags.AD):#06x}")
 
             if response.rcode() == dns.rcode.NXDOMAIN:
                 return {
@@ -115,10 +117,9 @@ class DNSSECValidator:
                     'resolver_ip': resolver_addr,
                 }
 
-            # Check AD (Authenticated Data) flag using explicit integer bitmask.
-            # dns.flags.AD = 0x0020 (32). Cast both sides to int to avoid
-            # any IntFlag enum comparison ambiguity across dnspython versions.
-            ad_flag_set = bool(int(response.flags) & int(dns.flags.AD))
+            # Check AD flag directly on the response message object
+            ad_flag_set = bool(response.flags & dns.flags.AD)
+            print(f"[DEBUG] AD flag detected: {ad_flag_set}")
 
             # Determine validation status based on AD flag
             if ad_flag_set:

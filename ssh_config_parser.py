@@ -4,7 +4,7 @@ SSH Configuration Parser Module
 Parses OpenSSH server configuration files (sshd_config) with support for:
 - Include directives (processed inline, matching OpenSSH behavior)
 - Comment and blank line handling
-- OpenSSH precedence rules (last value wins)
+- OpenSSH precedence rules (first value wins)
 - Trust-relevant directive extraction
 
 LIMITATIONS:
@@ -15,6 +15,7 @@ LIMITATIONS:
 
 import os
 import re
+import shlex
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -58,25 +59,27 @@ class SSHConfigParser:
     def parse(self) -> Dict[str, str]:
         """
         Parse the SSH configuration file and included files.
-        
-        This method processes Include directives inline (at the point they appear),
-        matching OpenSSH behavior. Included file lines are injected in-place,
-        preserving the order of processing.
-        
+
+        Processes Include directives inline (at the point they appear), matching
+        OpenSSH behavior. Uses first-value-wins semantics: once a directive is
+        set, later occurrences are ignored. Stops processing at a Match block
+        since Match conditions cannot be evaluated statically.
+
         Returns:
-            Dictionary mapping directive names to their final values
-            (following OpenSSH precedence: last value wins)
+            Dictionary mapping directive names to their effective values.
         """
-        # Process configuration with inline Include handling
         all_lines = self._parse_with_includes(self.config_path)
-        
-        # Extract directives (last value wins)
+
+        # First-value-wins: only record a directive if not already seen
         final_directives = {}
         for line in all_lines:
+            # Stop at Match blocks — conditions cannot be evaluated statically
+            if re.match(r'^[Mm]atch\b', line):
+                break
             directive, value = self._parse_line(line)
-            if directive:
+            if directive and directive not in final_directives:
                 final_directives[directive] = value
-        
+
         self.directives = final_directives
         return final_directives
     
@@ -103,30 +106,32 @@ class SSHConfigParser:
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 for line in f:
-                    # Skip commented lines before any other processing
-                    if line.strip().startswith('#'):
+                    # Skip comment lines and blank lines
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith('#'):
                         continue
 
-                    # Remove inline comments (everything after #, but not escaped #)
-                    clean_line = re.sub(r'(?<!\\)#.*$', '', line)
-                    clean_line = clean_line.strip()
+                    # Use shlex.split with comments=True to safely strip inline
+                    # comments and handle quoted values in one pass
+                    try:
+                        tokens = shlex.split(stripped, comments=True)
+                    except ValueError:
+                        # Malformed quoting — fall back to raw stripped line
+                        tokens = stripped.split(None, 1)
 
-                    # Skip blank lines
-                    if not clean_line:
+                    if not tokens:
                         continue
-                    
+
+                    # Reconstruct a normalised "Directive value" line for _parse_line
+                    keyword = tokens[0]
+                    value = tokens[1] if len(tokens) > 1 else ''
+                    clean_line = f'{keyword} {value}'.strip()
+
                     # Check if this is an Include directive
-                    include_match = re.match(r'^\s*[Ii]nclude\s+(.+)$', clean_line)
-                    if include_match:
-                        # Process Include directive inline
-                        pattern = include_match.group(1).strip()
-                        pattern = pattern.strip('"\'')
-                        
-                        # Process included files and insert their lines here
-                        included_lines = self._process_include_pattern(pattern)
+                    if keyword.lower() == 'include':
+                        included_lines = self._process_include_pattern(value)
                         all_lines.extend(included_lines)
                     else:
-                        # Regular configuration line
                         all_lines.append(clean_line)
                         
         except PermissionError:
