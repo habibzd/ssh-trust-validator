@@ -81,11 +81,22 @@ class DNSSECValidator:
             print(f"[DEBUG] Sending DNSSEC UDP query for {hostname} {record_type} to {resolver_addr}:53")
 
             # Use a raw socket instead of dns.query.udp() to avoid the
-            # BlockingIOError (EAGAIN) caused by dnspython setting non-blocking mode
+            # BlockingIOError (EAGAIN) caused by dnspython setting non-blocking mode.
+            # Determine the correct source IP by briefly connecting a temp socket
+            # to the resolver — this lets the OS pick the right interface without
+            # actually sending anything, then bind the real socket to that IP.
             wire = query.to_wire()
+            tmp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                tmp.connect((resolver_addr, 53))
+                local_ip = tmp.getsockname()[0]
+            finally:
+                tmp.close()
+            print(f"[DEBUG] Binding query socket to local IP {local_ip}")
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(10)
             try:
+                sock.bind((local_ip, 0))
                 sock.sendto(wire, (resolver_addr, 53))
                 data, _ = sock.recvfrom(4096)
             finally:
@@ -133,8 +144,15 @@ class DNSSECValidator:
             
             return result
             
-        except dns.exception.Timeout:
-            raise DNSSECValidationError(f"DNS query timeout for {hostname}")
+        except (dns.exception.Timeout, socket.timeout):
+            return {
+                'status': 'not_validated',
+                'description': 'DNSSEC validation status could not be confirmed - treating as not validated',
+                'ad_flag': False,
+                'hostname': hostname,
+                'record_type': record_type,
+                'resolver_ip': self.resolver_ip,
+            }
         except Exception as e:
             raise DNSSECValidationError(f"DNSSEC validation check failed for {hostname}: {e}")
     
