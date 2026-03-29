@@ -13,7 +13,9 @@ LIMITATIONS:
 """
 
 import socket
+import select
 import dns.message
+import dns.rdatatype
 import dns.flags
 import dns.rcode
 import dns.resolver
@@ -74,38 +76,33 @@ class DNSSECValidator:
             if not resolver_addr:
                 raise DNSSECValidationError("No DNS resolver configured")
 
-            # Build query with DO flag set to request DNSSEC validation
-            query = dns.message.make_query(hostname, record_type)
-            query.flags |= dns.flags.DO
-
-            print(f"[DEBUG] Sending DNSSEC UDP query for {hostname} {record_type} to {resolver_addr}:53")
-
-            # Use a raw socket instead of dns.query.udp() to avoid the
-            # BlockingIOError (EAGAIN) caused by dnspython setting non-blocking mode.
-            # Determine the correct source IP by briefly connecting a temp socket
-            # to the resolver — this lets the OS pick the right interface without
-            # actually sending anything, then bind the real socket to that IP.
-            wire = query.to_wire()
+            # Determine local source IP by briefly connecting a temp socket —
+            # no packets are sent, the OS just selects the correct interface
             tmp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             try:
                 tmp.connect((resolver_addr, 53))
                 local_ip = tmp.getsockname()[0]
             finally:
                 tmp.close()
-            print(f"[DEBUG] Binding query socket to local IP {local_ip}")
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(10)
-            try:
-                sock.bind((local_ip, 0))
-                sock.sendto(wire, (resolver_addr, 53))
-                data, _ = sock.recvfrom(65535)
-            finally:
-                sock.close()
 
-            print("raw bytes len:", len(data))
-            response = dns.message.from_wire(data)
-            print("response flags text:", dns.flags.to_text(response.flags))
-            print("AD detected:", bool(response.flags & dns.flags.AD))
+            q = dns.message.make_query(hostname, dns.rdatatype.SSHFP, use_edns=True, want_dnssec=True)
+            wire = q.to_wire()
+            destination = (resolver_addr, 53)
+
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.settimeout(10)
+                s.bind((local_ip, 0))
+                print(f"[DEBUG] bound to {s.getsockname()}")
+                print(f"[DEBUG] sending {len(wire)} bytes to {destination}")
+                s.sendto(wire, destination)
+                readable, _, _ = select.select([s], [], [], 10)
+                if not readable:
+                    raise TimeoutError("no response")
+                data, addr = s.recvfrom(65535)
+                print(f"[DEBUG] received {len(data)} bytes from {addr}")
+                response = dns.message.from_wire(data)
+                ad = bool(response.flags & dns.flags.AD)
+                print(f"[DEBUG] flags={dns.flags.to_text(response.flags)} AD={ad}")
 
             if response.rcode() == dns.rcode.NXDOMAIN:
                 return {
@@ -117,8 +114,7 @@ class DNSSECValidator:
                     'resolver_ip': resolver_addr,
                 }
 
-            # Check AD flag directly on the response message object
-            ad_flag_set = bool(response.flags & dns.flags.AD)
+            ad_flag_set = ad
 
             # Determine validation status based on AD flag
             if ad_flag_set:
@@ -144,7 +140,7 @@ class DNSSECValidator:
             
             return result
             
-        except (dns.exception.Timeout, socket.timeout):
+        except (dns.exception.Timeout, socket.timeout, TimeoutError):
             return {
                 'status': 'not_validated',
                 'description': 'DNSSEC validation status could not be confirmed - treating as not validated',
