@@ -86,7 +86,7 @@ class DNSSECValidator:
             query.flags |= dns.flags.DO  # Request DNSSEC validation (DO flag)
             
             # Get response with flags (minimal query for flag checking)
-            response = dns.query.udp(query, resolver_addr, timeout=5)
+            response = dns.query.udp(query, resolver_addr, timeout=10)
             
             # Check AD (Authenticated Data) flag using explicit integer bitmask.
             # dns.flags.AD = 0x0020 (32). Cast both sides to int to avoid
