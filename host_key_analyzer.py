@@ -28,7 +28,7 @@ class HostKeyAnalyzer:
         'ecdsa-sha2-nistp256': 3,  # All ECDSA variants use algorithm 3
         'ecdsa-sha2-nistp384': 3,  # RFC 4255 specifies algorithm 3 for ECDSA
         'ecdsa-sha2-nistp521': 3,  # Curve is identified by the key data, not algorithm number
-        'ssh-ed25519': 6,
+        'ssh-ed25519': 4,
         'ssh-ed448': 7,
     }
     
