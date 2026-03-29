@@ -71,47 +71,38 @@ class DNSSECValidator:
             }
         """
         try:
-            # Query records using high-level resolver API (dns.resolver.resolve)
-            # This performs the actual DNS query through the configured resolver
-            # and uses the resolver's standard behavior
-            answers = self.resolver.resolve(hostname, record_type, raise_on_no_answer=False)
-            
-            # To check the AD (Authenticated Data) flag, we need to access the
-            # underlying DNS response message. Since dns.resolver.resolve() doesn't
-            # directly expose response flags, we make a minimal query to check
-            # the AD flag. The AD flag is an operational signal from the validating
-            # resolver indicating successful DNSSEC validation, not cryptographic proof.
             resolver_addr = self.resolver_ip or (self.resolver.nameservers[0] if self.resolver.nameservers else None)
             if not resolver_addr:
                 raise DNSSECValidationError("No DNS resolver configured")
 
-            print(f"[DEBUG] Sending DNSSEC UDP query for {hostname} {record_type} to {resolver_addr}")
-
-            # Create query to check AD flag
+            # Build query with DO flag set to request DNSSEC validation
             query = dns.message.make_query(hostname, record_type)
-            query.flags |= dns.flags.DO  # Request DNSSEC validation (DO flag)
+            query.flags |= dns.flags.DO
 
-            # Get response with flags (minimal query for flag checking)
-            response = dns.query.udp(query, resolver_addr, timeout=10)
+            print(f"[DEBUG] Sending DNSSEC UDP query for {hostname} {record_type} to {resolver_addr}:53")
+
+            # Send directly via UDP to the configured resolver, bypassing the
+            # high-level dns.resolver.resolve() which has its own retry/timeout
+            # logic and may use a different nameserver path
+            response = dns.query.udp(query, resolver_addr, port=53, timeout=10)
+
             print(f"[DEBUG] Response received from {resolver_addr}, flags={dns.flags.to_text(response.flags)}")
-            
+
             # Check AD (Authenticated Data) flag using explicit integer bitmask.
             # dns.flags.AD = 0x0020 (32). Cast both sides to int to avoid
             # any IntFlag enum comparison ambiguity across dnspython versions.
             ad_flag_set = bool(int(response.flags) & int(dns.flags.AD))
-            
+
             # Determine validation status based on AD flag
             if ad_flag_set:
                 status = 'validated'
                 description = 'DNSSEC validation successful (AD flag set by validating resolver)'
             else:
-                # AD flag not set - validation failed, not available, or not requested
-                # Check if we have answers (records exist but not validated)
-                if len(answers) > 0:
+                # AD flag not set - check if records were returned at all
+                if len(response.answer) > 0:
                     status = 'not_validated'
                     description = 'DNS records exist but DNSSEC validation failed or not available (AD flag not set)'
                 else:
-                    # No records found
                     status = 'unknown'
                     description = 'No DNS records found, DNSSEC validation status unknown'
             
