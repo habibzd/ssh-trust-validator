@@ -12,8 +12,8 @@ LIMITATIONS:
 - This tool focuses on misconfiguration detection, not runtime attack detection
 """
 
+import socket
 import dns.message
-import dns.query
 import dns.flags
 import dns.rcode
 import dns.resolver
@@ -80,11 +80,18 @@ class DNSSECValidator:
 
             print(f"[DEBUG] Sending DNSSEC UDP query for {hostname} {record_type} to {resolver_addr}:53")
 
-            # Send directly via UDP to the configured resolver, bypassing the
-            # high-level dns.resolver.resolve() which has its own retry/timeout
-            # logic and may use a different nameserver path
-            response = dns.query.udp(query, resolver_addr, port=53, timeout=10)
+            # Use a raw socket instead of dns.query.udp() to avoid the
+            # BlockingIOError (EAGAIN) caused by dnspython setting non-blocking mode
+            wire = query.to_wire()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(10)
+            try:
+                sock.sendto(wire, (resolver_addr, 53))
+                data, _ = sock.recvfrom(4096)
+            finally:
+                sock.close()
 
+            response = dns.message.from_wire(data)
             print(f"[DEBUG] Response received from {resolver_addr}, flags={dns.flags.to_text(response.flags)}")
 
             if response.rcode() == dns.rcode.NXDOMAIN:
