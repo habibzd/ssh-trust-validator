@@ -38,9 +38,13 @@ class DNSSECValidator:
         """
         self.resolver_ip = resolver_ip
         self.resolver = dns.resolver.Resolver()
-        
+        self.resolver.timeout = 10
+        self.resolver.lifetime = 10
+
         if resolver_ip:
             self.resolver.nameservers = [resolver_ip]
+
+        print(f"[DEBUG] DNSSECValidator init: resolver_ip={resolver_ip}, nameservers={self.resolver.nameservers}")
     
     def check_dnssec_validation(self, hostname: str, record_type: str = 'SSHFP') -> Dict:
         """
@@ -80,13 +84,16 @@ class DNSSECValidator:
             resolver_addr = self.resolver_ip or (self.resolver.nameservers[0] if self.resolver.nameservers else None)
             if not resolver_addr:
                 raise DNSSECValidationError("No DNS resolver configured")
-            
+
+            print(f"[DEBUG] Sending DNSSEC UDP query for {hostname} {record_type} to {resolver_addr}")
+
             # Create query to check AD flag
             query = dns.message.make_query(hostname, record_type)
             query.flags |= dns.flags.DO  # Request DNSSEC validation (DO flag)
-            
+
             # Get response with flags (minimal query for flag checking)
             response = dns.query.udp(query, resolver_addr, timeout=10)
+            print(f"[DEBUG] Response received from {resolver_addr}, flags={dns.flags.to_text(response.flags)}")
             
             # Check AD (Authenticated Data) flag using explicit integer bitmask.
             # dns.flags.AD = 0x0020 (32). Cast both sides to int to avoid
