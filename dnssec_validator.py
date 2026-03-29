@@ -98,7 +98,7 @@ class DNSSECValidator:
             try:
                 sock.bind((local_ip, 0))
                 sock.sendto(wire, (resolver_addr, 53))
-                data, _ = sock.recvfrom(4096)
+                data, _ = sock.recvfrom(65535)
             finally:
                 sock.close()
 
