@@ -103,10 +103,14 @@ class SSHConfigParser:
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 for line in f:
-                    # Remove comments (everything after #, but not escaped #)
+                    # Skip commented lines before any other processing
+                    if line.strip().startswith('#'):
+                        continue
+
+                    # Remove inline comments (everything after #, but not escaped #)
                     clean_line = re.sub(r'(?<!\\)#.*$', '', line)
                     clean_line = clean_line.strip()
-                    
+
                     # Skip blank lines
                     if not clean_line:
                         continue
